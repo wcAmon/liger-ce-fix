@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liger-ce-fix"
+version = "0.1.0"
+description = "Liger fused linear cross-entropy with the log-space fix for softmax collapse (arXiv 2610.31642)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "BSD-2-Clause" }
+dependencies = ["torch>=2.12"]
+
+[project.optional-dependencies]
+cuda = ["triton>=3.7"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["liger_ce_fix*"]
+
+[tool.pytest.ini_options]
+markers = ["cuda: needs a CUDA GPU (skipped automatically when none is visible)"]
+testpaths = ["tests"]
