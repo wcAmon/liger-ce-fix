@@ -41,8 +41,12 @@ def test_fused_matches_reference_fp32(rows, reduction):
     loss, gh, gw = _run_fused(h, w, y, reduction)
     want, rgh, rgw = _run_reference(h, w, y, reduction)
     assert torch.allclose(loss, want, rtol=0, atol=1e-6 * max(1.0, want.abs().item()))
-    assert torch.allclose(gh, rgh, rtol=1e-5, atol=1e-6)
-    assert torch.allclose(gw, rgw, rtol=1e-5, atol=1e-6)   # grad_W: 128 chunked fp32 partial matmuls vs one
+    # spec §3.6: relative difference <= 1e-5. atol scales with the gradient's magnitude like the loss line above: under
+    # reduction="sum" grad_W reaches ~6 and fp32 cancellation noise in one 4096-term dot product is ~1e-6 absolute, so a
+    # fixed atol=1e-6 fails on ~70 near-zero elements although the fused result is CLOSER to an fp64 oracle than the
+    # torch reference is (2026-10-30 GPU run: fused 0 / reference 71 violations against fp64).
+    assert torch.allclose(gh, rgh, rtol=1e-5, atol=1e-6 * max(1.0, rgh.abs().max().item()))
+    assert torch.allclose(gw, rgw, rtol=1e-5, atol=1e-6 * max(1.0, rgw.abs().max().item()))   # grad_W: 128 chunked fp32 partial matmuls vs one
 
 
 def test_fused_bf16_matches_reference_on_the_same_bf16_logits():
@@ -58,7 +62,12 @@ def test_fused_bf16_matches_reference_on_the_same_bf16_logits():
     want.backward()
     assert torch.allclose(loss, want.detach().float(), rtol=1e-3)   # cuBLAS may round a few bf16 logits differently per chunk shape
     assert torch.allclose(gh, h2.grad.float(), rtol=2e-2, atol=1e-6)
-    assert torch.allclose(gw, w2.grad.float(), rtol=2e-2, atol=1e-6)
+    # grad_W is accumulated across the 128 chunks IN THE WEIGHT DTYPE (bf16), exactly as Liger 0.8.0 does, while the
+    # reference's single GEMM rounds once; near-cancelling elements therefore differ by up to a bf16 ulp of the
+    # accumulator's scale (2026-10-30 GPU run: 94 of 16.4M elements with atol 1e-6, max abs 1.5e-5 against max|grad_W|
+    # 2.9e-3). atol = two bf16 ulps of the gradient's largest magnitude; rtol 2e-2 covers the rest.
+    rgw = w2.grad.float()
+    assert torch.allclose(gw, rgw, rtol=2e-2, atol=2.0 ** -7 * rgw.abs().max().item())
 
 
 @pytest.mark.parametrize("m", [20.0, 40.0, 80.0])
