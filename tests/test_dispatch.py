@@ -3,7 +3,8 @@ A fake kernel records HAS_GRADIENTS so these run on CPU; the chunking / matmul a
 import pytest
 import torch
 
-import liger_ce_fix.ops.cross_entropy as ce_mod
+pytest.importorskip("triton", reason="the ops modules import triton at module level; CI's CPU wheel has none")
+import liger_ce_fix.ops.cross_entropy as ce_mod  # noqa: E402
 import liger_ce_fix.ops.fused_linear_cross_entropy as fused_mod
 from liger_ce_fix.ops.cross_entropy import cross_entropy_autograd
 from liger_ce_fix.ops.fused_linear_cross_entropy import fused_linear_cross_entropy_autograd
