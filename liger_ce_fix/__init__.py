@@ -27,13 +27,14 @@ def _reject(extra: dict) -> None:
 
 def cross_entropy(logits: torch.Tensor, target: torch.Tensor, *, ignore_index: int = -100,
                   reduction: str = "mean", **extra) -> torch.Tensor:
-    """Cross-entropy over materialized logits [N, V]. On CUDA the Triton kernel overwrites `logits` with the gradient
-    (do not reuse the tensor); on CPU the pure-torch reference runs."""
+    """Cross-entropy over materialized logits [N, V]. On CUDA the Triton kernel runs; when a backward can follow
+    (grad mode on, logits requires grad) it overwrites `logits` with the gradient, so do not reuse the tensor. Under
+    torch.no_grad() logits are left intact. On CPU the pure-torch reference runs."""
     _reject(extra)
     check_reduction(reduction)
     if logits.is_cuda:
-        from liger_ce_fix.ops.cross_entropy import CrossEntropyFunction
-        return CrossEntropyFunction.apply(logits, target, ignore_index, reduction)
+        from liger_ce_fix.ops.cross_entropy import cross_entropy_autograd
+        return cross_entropy_autograd(logits, target, ignore_index, reduction)
     return reference_cross_entropy(logits, target, ignore_index=ignore_index, reduction=reduction)
 
 
@@ -46,8 +47,8 @@ def fused_linear_cross_entropy(hidden: torch.Tensor, weight: torch.Tensor, targe
     if not hidden.is_cuda:
         raise RuntimeError("fused_linear_cross_entropy needs CUDA tensors; on CPU call "
                            "reference_cross_entropy(hidden @ weight.T, target, ...)")
-    from liger_ce_fix.ops.fused_linear_cross_entropy import FusedLinearCrossEntropyFunction
-    return FusedLinearCrossEntropyFunction.apply(hidden, weight, target, ignore_index, reduction)
+    from liger_ce_fix.ops.fused_linear_cross_entropy import fused_linear_cross_entropy_autograd
+    return fused_linear_cross_entropy_autograd(hidden, weight, target, ignore_index, reduction)
 
 
 __all__ = ["fused_linear_cross_entropy", "cross_entropy", "reference_cross_entropy", "__version__", "__commit__"]

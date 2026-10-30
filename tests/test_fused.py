@@ -110,3 +110,20 @@ def test_fused_without_grad_requirement_returns_loss_only():
         loss = _fused().apply(h, w, y, -100, "mean")
     want = reference_cross_entropy(h @ w.t(), y)
     assert torch.allclose(loss, want, rtol=1e-6, atol=1e-6)
+
+
+def test_fused_under_no_grad_with_parameter_weight_allocates_no_gradient_buffers():
+    from liger_ce_fix import fused_linear_cross_entropy
+    torch.manual_seed(3)
+    h = torch.randn(2048, H, device="cuda")
+    w = torch.nn.Parameter(torch.randn(V, H, device="cuda") * 0.05)   # the eval-time shape: frozen trunk, Parameter head
+    y = torch.randint(0, V, (2048,), device="cuda")
+    torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
+    before = torch.cuda.memory_allocated()
+    with torch.no_grad():
+        loss = fused_linear_cross_entropy(h, w, y, reduction="mean")
+    peak_delta = torch.cuda.max_memory_allocated() - before
+    # a grad_weight buffer alone would be V*H*4 = 65.5 MB (+ a 65.5 MB fp32 temp); the logits chunk is 16 x V x 4 = 4 MB
+    assert peak_delta < 32 * 1024 * 1024, peak_delta
+    assert not loss.requires_grad
+    assert torch.allclose(loss, reference_cross_entropy(h @ w.detach().t(), y), rtol=1e-6, atol=1e-6)

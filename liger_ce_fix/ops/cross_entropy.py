@@ -31,9 +31,10 @@ def ce_fix_kernel(
     y = tl.load(Y_ptr)
     X_ptr += program_id * X_stride
     if y == ignore_index:
-        for i in range(0, n_cols, BLOCK_SIZE):
-            X_offsets = i + tl.arange(0, BLOCK_SIZE)
-            tl.store(X_ptr + X_offsets, 0.0, mask=X_offsets < n_cols)
+        if HAS_GRADIENTS:
+            for i in range(0, n_cols, BLOCK_SIZE):
+                X_offsets = i + tl.arange(0, BLOCK_SIZE)
+                tl.store(X_ptr + X_offsets, 0.0, mask=X_offsets < n_cols)
         return
     loss_ptr += program_id * loss_stride
     x_y = tl.load(X_ptr + y).cast(tl.float32)
@@ -47,9 +48,12 @@ def ce_fix_kernel(
                           other=float("-inf")).cast(tl.float32)
         block_max = tl.max(X_block)
         m_new = tl.maximum(m_ex, block_max)
-        d_ex = d_ex * tl.exp(m_ex - m_new) + tl.sum(tl.exp(X_block - m_new))
+        # all columns so far -inf (V == 1, or every non-target logit is -inf): keep exp(-inf - m_safe) = 0, not nan
+        m_safe = tl.where(m_new == float("-inf"), 0.0, m_new)
+        d_ex = d_ex * tl.exp(m_ex - m_safe) + tl.sum(tl.exp(X_block - m_safe))
         m_ex = m_new
-    lse_ex = m_ex + tl.log(d_ex)
+    lse_ex = m_ex + tl.log(d_ex)                      # -inf when nothing survived: margin = +inf, s = 0, loss = 0
+    lse_safe = tl.where(lse_ex == float("-inf"), 0.0, lse_ex)
     margin = x_y - lse_ex
 
     # s = sigmoid(-margin) without overflow: e = exp(-|margin|)
@@ -64,7 +68,7 @@ def ce_fix_kernel(
         for i in range(0, n_cols, BLOCK_SIZE):
             X_offsets = i + tl.arange(0, BLOCK_SIZE)
             X_block = tl.load(X_ptr + X_offsets, mask=X_offsets < n_cols, other=float("-inf")).cast(tl.float32)
-            g = tl.exp(X_block - lse_ex) * s
+            g = tl.exp(X_block - lse_safe) * s
             g = tl.where(X_offsets != y, g, -s)
             if reduction == "mean":
                 g = g / n_non_ignore
@@ -78,7 +82,8 @@ def ce_fix_kernel(
 
 def cross_entropy_forward(logits, target, ignore_index, reduction):
     """Runs the kernel over [N, V] logits. Returns (loss, grad_logits); grad_logits IS `logits` (contiguous copy if
-    needed), overwritten in place with d loss / d logits (zeros when logits does not require grad)."""
+    needed). When logits requires grad it is overwritten in place with d loss / d logits (ignored rows zeroed);
+    otherwise the kernel only reads it and the returned tensor still holds the logits."""
     check_reduction(reduction)
     if logits.ndim != 2:
         raise ValueError(f"logits must be 2-D [N, V], got {tuple(logits.shape)}")
@@ -128,3 +133,13 @@ class CrossEntropyFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         (grad,) = ctx.saved_tensors
         return scale_by_grad_output(grad, grad_output), None, None, None
+
+
+def cross_entropy_autograd(logits, target, ignore_index, reduction):
+    """CUDA entry behind liger_ce_fix.cross_entropy. Function.forward cannot see grad mode, so the decision is made
+    here: with grad mode on and logits requiring grad the autograd Function runs (and overwrites logits with the
+    gradient); otherwise a plain forward on detached logits runs the kernel read-only and leaves logits intact."""
+    if torch.is_grad_enabled() and logits.requires_grad:
+        return CrossEntropyFunction.apply(logits, target, ignore_index, reduction)
+    loss, _ = cross_entropy_forward(logits.detach(), target, ignore_index, reduction)
+    return loss

@@ -74,3 +74,14 @@ class FusedLinearCrossEntropyFunction(torch.autograd.Function):
         if grad_weight is not None:
             grad_weight = scale_by_grad_output(grad_weight, grad_output)
         return grad_hidden, grad_weight, None, None, None
+
+
+def fused_linear_cross_entropy_autograd(hidden, weight, target, ignore_index, reduction):
+    """CUDA entry behind liger_ce_fix.fused_linear_cross_entropy. Under torch.no_grad() (evaluation, reference-model
+    scoring) nothing can call backward, yet inside Function.forward the inputs still report requires_grad=True for an
+    nn.Parameter head, which would buy a full gradient pass plus a [V, H] grad_weight buffer for nothing (Liger skips
+    it too). So grad mode is read here and the plain forward runs on detached inputs when no backward can follow."""
+    if torch.is_grad_enabled() and (hidden.requires_grad or weight.requires_grad):
+        return FusedLinearCrossEntropyFunction.apply(hidden, weight, target, ignore_index, reduction)
+    loss, _, _ = fused_linear_cross_entropy_forward(hidden.detach(), weight.detach(), target, ignore_index, reduction)
+    return loss

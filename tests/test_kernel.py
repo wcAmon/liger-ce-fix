@@ -128,3 +128,12 @@ def test_kernel_backward_scales_with_grad_output():
     w = torch.linspace(0.1, 1.6, 16).cuda()
     (_kernel().apply(x3, y, -100, "none") * w).sum().backward()
     assert torch.allclose(x3.grad, x2.grad * w[:, None], rtol=1e-6, atol=1e-9)
+
+
+def test_kernel_all_other_logits_minus_inf_gives_zero_loss_and_finite_grad():
+    x = torch.full((2, 5), float("-inf"))
+    x[0, 2] = 1.0
+    x[1, 4] = -3.0
+    loss, g = _grad_kernel(x, torch.tensor([2, 4]), "sum")
+    assert loss.item() == 0.0 and torch.isfinite(g).all()
+    assert torch.equal(g, torch.zeros_like(g))

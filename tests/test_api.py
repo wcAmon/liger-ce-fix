@@ -53,10 +53,24 @@ def test_cross_entropy_on_cuda_uses_kernel_and_matches_reference():
     torch.manual_seed(1)
     x = torch.randn(33, 777, device="cuda", requires_grad=True)
     y = torch.randint(0, 777, (33,), device="cuda")
+    x0 = x.detach().clone()                      # the kernel overwrites x with the gradient
     loss = cross_entropy(x, y, reduction="none")
     assert loss.shape == (33,)
-    want = reference_cross_entropy(x.detach(), y, reduction="none")
+    want = reference_cross_entropy(x0, y, reduction="none")
     assert torch.allclose(loss, want, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.cuda
+def test_cross_entropy_under_no_grad_leaves_logits_untouched():
+    torch.manual_seed(3)
+    x = torch.randn(9, 123, device="cuda", requires_grad=True)
+    y = torch.randint(0, 123, (9,), device="cuda")
+    y[2] = -100                                   # an ignored row: the kernel must not zero it either
+    x0 = x.detach().clone()
+    with torch.no_grad():
+        loss = cross_entropy(x, y, reduction="sum")
+    assert torch.equal(x.detach(), x0) and not loss.requires_grad
+    assert torch.allclose(loss, reference_cross_entropy(x0, y, reduction="sum"), rtol=1e-6, atol=1e-6)
 
 
 @pytest.mark.cuda
