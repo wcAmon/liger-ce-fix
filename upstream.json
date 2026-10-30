@@ -1,0 +1,24 @@
+{
+  "repo": "linkedin/Liger-Kernel",
+  "base_tag": "v0.8.0",
+  "files": [
+    "src/liger_kernel/ops/cross_entropy.py",
+    "src/liger_kernel/ops/fused_linear_cross_entropy.py"
+  ],
+  "base_sha256": {
+    "src/liger_kernel/ops/cross_entropy.py": "01276231c0f9f18d3ad6353b7c28b2f4426c408884515ee50934d89c10563958",
+    "src/liger_kernel/ops/fused_linear_cross_entropy.py": "f87945b3e392464a2246608eafefce1b062ea06d498a6eaa785505b297cc09c2"
+  },
+  "last_reviewed_tag": "v0.8.0",
+  "watch_keywords": [
+    "2610.31642",
+    "cancellation",
+    "softmax collapse",
+    "log-space",
+    "softplus",
+    "logsumexp of the non-target",
+    "true-class gradient",
+    "gradient precision",
+    "dx_y"
+  ]
+}
