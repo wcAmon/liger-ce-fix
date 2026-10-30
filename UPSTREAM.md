@@ -34,3 +34,20 @@ opens pull requests. A base-file sha256 mismatch aborts loudly (the base tag's c
 
 `liger-kernel` itself stays a separate dependency of circus (rms_norm, swiglu); upgrading it is a venv change plus the
 same circus gates, independent of this package.
+
+## Review log
+
+### v0.8.5 (reviewed 2026-10-30, issue #1) — nothing to port now; three performance candidates deferred
+
+Upstream's correctness fixes do not apply to this fork: `be1cdc1` repairs a precision regression that `e44a5fe`
+(post-0.8.0) introduced and we never had (our `dx_y = −σ(−m)` is computed in fp32 and written once); `ae47958` fixes a
+column-stride bug in upstream's Triton scaling kernel, ours scales with `torch.mul_`, which honours strides. To confirm
+at the next review: `9ac26bb` (grad_weight under `reduction='none'`) against our `none` branch.
+
+**Port candidates for the next training-free window** (each must keep 70 GPU tests green and bench exit 0; any kernel
+change re-pins circus and re-runs parity, so batch them with the `liger-kernel` 0.8.0 → 0.8.x upgrade):
+1. `0b93bc9` dtype-aware `num_warps`, Blackwell-gated — launch parameter only, portable as is.
+2. `95b01e9` grad_W accumulation via `addmm(out_dtype=…)` + `de77856` logits-buffer reuse — portable, removes our
+   `torch.mm(...).float()` temporary.
+3. `8832b2e` hardware exp2 in the online-softmax passes — re-derivation required (our two passes compute `lse_ex` and
+   the log-space loss; the exp2 form must preserve the `−inf` guards and the target-masked LSE).

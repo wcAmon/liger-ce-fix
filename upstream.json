@@ -9,7 +9,7 @@
     "src/liger_kernel/ops/cross_entropy.py": "01276231c0f9f18d3ad6353b7c28b2f4426c408884515ee50934d89c10563958",
     "src/liger_kernel/ops/fused_linear_cross_entropy.py": "f87945b3e392464a2246608eafefce1b062ea06d498a6eaa785505b297cc09c2"
   },
-  "last_reviewed_tag": "v0.8.0",
+  "last_reviewed_tag": "v0.8.5",
   "watch_keywords": [
     "2610.31642",
     "cancellation",
